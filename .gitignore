@@ -1,0 +1,34 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### gradle ###
+.gradle/
+build/
+out/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### VS Code ###
+.vscode/
+
+### mac ###
+.DS_Store
+
+### Formatter ###
+.cache
+.cache/formatter-maven-cache.properties
+
+### Frontend ###
+package-lock.json
+yarn.lock
+node_modules/
+.env.local
+
+### PowerDesign ###
+*.pdb
