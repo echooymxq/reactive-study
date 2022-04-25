@@ -1,8 +1,11 @@
 package mxq.echooy.reactor.core;
 
 import org.junit.Test;
+import org.reactivestreams.Subscription;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SynchronousSink;
 import reactor.test.StepVerifier;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuples;
@@ -39,25 +42,17 @@ public class FluxExamples {
 
     @Test
     public void just() {
-        Flux<String> source = Flux.just("1", "2");
+        Flux<String> source = Flux.just("1", "2", "3");
         StepVerifier.create(source)
                 .expectNext("1")
                 .expectNext("2")
+                .expectNext("3")
                 .verifyComplete();
     }
 
     @Test
     public void from() {
-        Flux<String> source = Flux.from(Flux.just("1"));
-        StepVerifier.create(source)
-                .expectNext("1")
-                .verifyComplete();
-    }
-
-    @Test
-    // 根据某数组创建流
-    public void fromArray() {
-        Flux<String> source = Flux.fromArray(new String[]{"1", "2", "3"});
+        Flux<String> source = Flux.from(Flux.just("1", "2", "3"));
         StepVerifier.create(source)
                 .expectNext("1")
                 .expectNext("2")
@@ -114,7 +109,7 @@ public class FluxExamples {
     // 使用generate创建流
     public void generate() {
         Flux<String> source = Flux.generate(sink -> {
-            sink.next("1"); // Consumer执行过程中只能调用最多一次sink#next
+            sink.next("1"); // 执行过程中只能调用最多一次sink#next
             sink.complete();
         });
         StepVerifier.create(source)
@@ -452,6 +447,18 @@ public class FluxExamples {
                 .transform(function);
         StepVerifier.create(source)
                 .expectNext("A")
+                .expectNext("C")
+                .verifyComplete();
+    }
+
+    @Test
+    // 使用sink主动下发流的元素
+    public void handle() {
+        Flux<String> source = Flux.just("a", "b", "c")
+                .handle((s, sink) -> sink.next(s.toUpperCase()));
+        StepVerifier.create(source)
+                .expectNext("A")
+                .expectNext("B")
                 .expectNext("C")
                 .verifyComplete();
     }
