@@ -2,9 +2,12 @@ package mxq.echooy.reactor.core;
 
 import org.junit.Test;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.test.StepVerifier;
 
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.awaitility.Awaitility.await;
@@ -13,6 +16,22 @@ import static org.awaitility.Awaitility.await;
  * @author <a href="mailto:echooy.mxq@gmail.com">echooymxq</a>
  **/
 public class SchedulerExamples {
+
+    @Test
+    public void block_non_blocking_thread() {
+        Mono<String> source = Mono.just("a")
+                .delayElement(Duration.ofMillis(10)) // delay等时间相关操作符默认使用parallel Scheduler
+//                .publishOn(Schedulers.boundedElastic())
+                .map(s -> convert(s).block()); // java.lang.IllegalStateException: block()/blockFirst()/blockLast() are blocking, which is not supported in thread parallel
+
+        StepVerifier.create(source)
+                .expectNext("A")
+                .verifyComplete();
+    }
+
+    public static Mono<String> convert(String a) {
+        return Mono.defer(() -> Mono.just(a.toUpperCase()));
+    }
 
     @Test
     public void scheduler() {
@@ -26,6 +45,16 @@ public class SchedulerExamples {
                 .doOnComplete(() -> state.set(true))
                 .subscribe();
         await().untilTrue(state);
+    }
+
+    @Test
+    public void immediate() throws InterruptedException {
+        Flux.range(1, 3)
+//                .limitRate(2)
+                .publishOn(Schedulers.immediate(), 2)  //背压每次读取两个元素，要求不改变线程；此处可以直接替换为limitRate(2)
+                .log()
+                .subscribe();
+        Thread.sleep(500);
     }
 
     @Test
@@ -70,25 +99,72 @@ public class SchedulerExamples {
     }
 
     @Test
-    public void schedulerBoundedElastic() {
-        AtomicBoolean state = new AtomicBoolean(false);
-        Flux.just(1)
-                .subscribeOn(Schedulers.boundedElastic())
+    public void subscribeOn() {
+        Flux<String> source = Flux.just("a")
                 .log()
-                .doFinally(__ -> state.set(true))
-                .subscribe();
-        await().untilTrue(state);
+                .map(String::toUpperCase)
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName()))
+                .subscribeOn(Schedulers.boundedElastic());
+
+        StepVerifier.create(source)
+                .expectNext("A")
+                .verifyComplete();
+    }
+
+    @Test
+    // 存在多个subscribeOn时，采用的总是离上游最近的那个
+    public void multi_subscribeOn() {
+        Flux<String> source = Flux.just("a")
+                .log()
+                .map(String::toUpperCase)
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName()))//Schedulers.parallel()离上游最近，使用Schedulers.parallel调度器线程执行
+                .subscribeOn(Schedulers.parallel())
+                .subscribeOn(Schedulers.boundedElastic());
+
+        StepVerifier.create(source)
+                .expectNext("A")
+                .verifyComplete();
     }
 
     @Test
     public void publishOn() {
-        AtomicBoolean state = new AtomicBoolean(false);
-        Flux.just("1", "2", "3")
-                .publishOn(Schedulers.boundedElastic())
+        Flux<String> source = Flux.just("a")
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName())) //main..
+                .publishOn(Schedulers.boundedElastic()) // 切换下游上下文执行线程
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName())) // boundedElastic...
                 .log()
-                .doFinally(__ -> state.set(true))
-                .subscribe(System.out::println);
-        await().untilTrue(state);
+                .map(String::toUpperCase);
+        StepVerifier.create(source)
+                .expectNext("A")
+                .verifyComplete();
+    }
+
+    @Test
+    public void multi_publishOn() {
+        Flux<String> source = Flux.just("a")
+                .publishOn(Schedulers.parallel()) // 切换下游上下文执行线程
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName())) //parallel..
+                .publishOn(Schedulers.boundedElastic()) // 切换下游上下文执行线程
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName())) // boundedElastic...
+                .log()
+                .map(String::toUpperCase);
+        StepVerifier.create(source)
+                .expectNext("A")
+                .verifyComplete();
+    }
+
+    @Test
+    public void subscribeOn_with_publishOn() {
+        Flux<String> source = Flux.just("a")
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName())) //parallel..
+                .publishOn(Schedulers.boundedElastic()) // 切换下游上下文执行线程
+                .doOnNext(s -> System.out.println(Thread.currentThread().getName())) // boundedElastic...
+                .log()
+                .map(String::toUpperCase)
+                .subscribeOn(Schedulers.parallel());
+        StepVerifier.create(source)
+                .expectNext("A")
+                .verifyComplete();
     }
 
     @Test
@@ -101,7 +177,7 @@ public class SchedulerExamples {
                     sink.complete();
                 })
                 .publishOn(Schedulers.single())
-//                .log()
+                .log()
                 .map(x -> {
                     String a = String.format("[%s] %s", Thread.currentThread().getName(),
                             x);
@@ -109,14 +185,14 @@ public class SchedulerExamples {
                     return a;
                 })
                 .publishOn(Schedulers.boundedElastic())
-//                .log()
+                .log()
                 .map(x -> {
                     String a = String.format("[%s] %s", Thread.currentThread().getName(),
                             x);
                     System.out.println("stage3:" + a);
                     return a;
                 })
-//                .log()
+                .log()
                 .subscribeOn(Schedulers.parallel())
                 .doFinally(__ -> state.set(true))
                 .subscribe();
