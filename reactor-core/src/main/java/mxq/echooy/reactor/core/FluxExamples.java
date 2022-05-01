@@ -12,6 +12,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -153,16 +154,30 @@ public class FluxExamples {
     }
 
     @Test
-    // 使用create创建流，可以使用同步sink多次或异步sink#next
+    // 使用create创建流，可以使用同步sink多次或多线程sink#next(即多个生产者)
     public void create() {
         Flux<Integer> source = Flux.create(sink -> {
-            for (int i = 0; i < 10; i++) {
+            IntStream.range(0, 100)
+                    .parallel()
+                    .forEach(sink::next);
+            sink.complete();
+        });
+        StepVerifier.create(source)
+                .expectNextCount(100)
+                .verifyComplete();
+    }
+
+    @Test
+    // 使用push创建流，单线程sink#next(即单个生产者)才能保证线程安全(元素数量大小一致)
+    public void push() {
+        Flux<Integer> source = Flux.push(sink -> {
+            for (int i = 0; i < 100; i++) {
                 sink.next(i);
             }
             sink.complete();
         });
         StepVerifier.create(source)
-                .expectNextCount(10)
+                .expectNextCount(100)
                 .verifyComplete();
     }
 
@@ -171,14 +186,14 @@ public class FluxExamples {
     public void using() {
         Random random = new Random();
         Flux<?> source = Flux.using(ArrayList::new, list -> {
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 100; i++) {
                 int value = random.nextInt(100);
                 list.add(value);
             }
             return Flux.fromIterable(list);
         }, ArrayList::clear);
         StepVerifier.create(source)
-                .expectNextCount(10)
+                .expectNextCount(100)
                 .verifyComplete();
     }
 
